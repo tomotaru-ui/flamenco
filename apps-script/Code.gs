@@ -258,6 +258,8 @@ function ensureDashboard_() {
     .setOption('title', '支払い状況(金額)')
     .setOption('width', 380)
     .setOption('height', 260)
+    .setOption('pieSliceText', 'value-and-percentage')
+    .setOption('legend.position', 'right')
     .build();
   dash.insertChart(paymentChart);
 
@@ -268,6 +270,8 @@ function ensureDashboard_() {
     .setOption('title', '大人・子供 人数比')
     .setOption('width', 380)
     .setOption('height', 260)
+    .setOption('pieSliceText', 'value-and-percentage')
+    .setOption('legend.position', 'right')
     .build();
   dash.insertChart(ageChart);
 
@@ -278,6 +282,8 @@ function ensureDashboard_() {
     .setOption('title', '入場状況(人数)')
     .setOption('width', 380)
     .setOption('height', 260)
+    .setOption('pieSliceText', 'value-and-percentage')
+    .setOption('legend.position', 'right')
     .build();
   dash.insertChart(checkinChart);
 }
