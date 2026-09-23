@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>フラメンコ公演 参加登録 | Carlos Gomez Flamenco School</title>
+<meta name="description" content="沖縄県那覇市ぶんかテンプス館 4階テンプスホールにて開催するフラメンコ公演のチケット参加登録ページです。" />
+<link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+
+<div class="hero">
+  <div class="eyebrow">FLAMENCO LIVE 2027</div>
+  <h1>フラメンコ公演 参加登録</h1>
+  <div class="lead">主催:Carlos Gomez Flamenco School</div>
+</div>
+
+<div class="container">
+
+  <div class="card">
+    <h2>開催概要</h2>
+    <table class="info-table">
+      <tr><th>日程</th><td>2027年11月21日(日)</td></tr>
+      <tr><th>時間</th><td>開場 15:30 / 開演 16:00 / 終演予定 20:00</td></tr>
+      <tr><th>会場</th><td>那覇市ぶんかテンプス館 4階テンプスホール</td></tr>
+      <tr><th>定員</th><td>220名<br><span id="seatsNote" class="seats-note" style="display:none"></span></td></tr>
+      <tr><th>申込締切</th><td>2027年11月18日(木)</td></tr>
+      <tr><th>主催</th><td><a href="https://carlosgomezflamencoshcool.jimdoweb.com/" target="_blank" rel="noopener">Carlos Gomez Flamenco School</a></td></tr>
+      <tr><th>お問い合わせ</th><td>okinawaflamenco@gmail.com<br>TEL 090-9149-5228(広報:奥平)</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>チケット料金(税込)</h2>
+    <table class="price-table">
+      <tr><th>大人</th><th>子供(中学生まで)</th></tr>
+      <tr><td>2,500円</td><td>1,000円</td></tr>
+    </table>
+    <p style="font-size:13px;color:#7a6b6b">未就学児で座席を使用しない場合は無料です。座席が必要な場合は子供料金でお申込みください。</p>
+  </div>
+
+  <div class="card">
+    <h2>参加登録フォーム</h2>
+    <p style="font-size:13px;color:#7a6b6b">
+      お申込み1件につき、代表者様の情報をご入力ください。当日は登録時にお送りする<b>QRコード</b>を受付でご提示いただきます。
+    </p>
+
+    <form id="regForm" action="" method="POST" target="response-frame">
+      <input type="hidden" name="action" value="register" />
+
+      <label>代表者氏名<span class="hint">必須</span></label>
+      <input type="text" name="name" required />
+
+      <label>フリガナ<span class="hint">任意・お振込みの際の照合に使用します</span></label>
+      <input type="text" name="kana" />
+
+      <label>メールアドレス<span class="hint">必須・QRコード付き確認メールを送信します</span></label>
+      <input type="email" name="email" required />
+
+      <label>電話番号<span class="hint">任意</span></label>
+      <input type="tel" name="tel" />
+
+      <div class="row-2">
+        <div>
+          <label>大人 人数<span class="hint">必須</span></label>
+          <input type="number" name="adults" min="0" max="220" value="1" required />
+        </div>
+        <div>
+          <label>子供(中学生まで) 人数<span class="hint">必須</span></label>
+          <input type="number" name="children" min="0" max="220" value="0" required />
+        </div>
+      </div>
+
+      <label>お支払い方法<span class="hint">必須</span></label>
+      <div class="radio-group">
+        <label><input type="radio" name="paymentMethod" value="transfer" checked /> 口座振込</label>
+        <label><input type="radio" name="paymentMethod" value="cash" /> 当日現金払い</label>
+      </div>
+
+      <div class="checkbox-line">
+        <input type="checkbox" id="agree" required />
+        <label for="agree" style="margin:0;font-weight:400">
+          振込の場合は申込締切(2027年11月18日)までのお振込みをお願いいたします。定員に達し次第、受付を終了させていただきます。
+        </label>
+      </div>
+
+      <button type="submit">この内容で申し込む</button>
+    </form>
+
+    <iframe name="response-frame" class="response-frame" id="responseFrame"></iframe>
+  </div>
+
+</div>
+
+<footer>
+  Carlos Gomez Flamenco School — フラメンコ公演 参加登録ページ
+</footer>
+
+<script src="assets/config.js"></script>
+<script>
+  document.getElementById('regForm').setAttribute('action', GAS_URL);
+
+  document.getElementById('regForm').addEventListener('submit', function () {
+    var frame = document.getElementById('responseFrame');
+    frame.style.display = 'block';
+    frame.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+
+  // 残席数の表示(取得できない場合は非表示のまま)
+  fetch(GAS_URL + '?action=stats')
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (data && data.ok) {
+        var el = document.getElementById('seatsNote');
+        el.textContent = '残り ' + data.remaining + ' 席(申込受付中)';
+        el.style.display = 'inline-block';
+      }
+    })
+    .catch(function () { /* 取得できなくてもフォーム送信には影響しません */ });
+</script>
+
+</body>
+</html>

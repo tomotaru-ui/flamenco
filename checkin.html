@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>受付チェックイン | フラメンコ公演</title>
+<link rel="stylesheet" href="assets/style.css" />
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+</head>
+<body>
+
+<div class="hero" style="padding:28px 20px;">
+  <div class="eyebrow">STAFF ONLY</div>
+  <h1 style="font-size:22px">受付チェックイン</h1>
+</div>
+
+<div class="container">
+
+  <div class="card" id="pinCard">
+    <h2>スタッフPIN</h2>
+    <label>PINコード</label>
+    <input type="text" id="pinInput" inputmode="numeric" placeholder="4桁のPIN" />
+    <button id="pinSaveBtn">このブラウザに保存して開始</button>
+    <p style="font-size:12px;color:#7a6b6b">PINは端末のこのブラウザにのみ保存されます。共用端末では終了時にログアウトしてください。</p>
+    <button class="secondary" id="pinLogoutBtn" style="display:none">PINを削除してログアウト</button>
+  </div>
+
+  <div class="card" id="scanCard" style="display:none">
+    <h2>QRコードをスキャン</h2>
+    <div id="reader"></div>
+    <div id="scanMsg" style="margin-top:8px"></div>
+
+    <h2 style="margin-top:24px">または登録番号で検索</h2>
+    <div class="row-2">
+      <input type="text" id="manualRegNumber" placeholder="例: TF-0001" />
+      <button class="secondary" id="manualSearchBtn" style="margin-top:0">検索</button>
+    </div>
+
+    <div id="resultArea"></div>
+
+    <h2 style="margin-top:24px">一覧</h2>
+    <button class="secondary" id="listBtn">登録一覧を表示</button>
+    <div id="listArea" class="table-scroll" style="margin-top:12px"></div>
+  </div>
+
+</div>
+
+<script src="assets/config.js"></script>
+<script>
+(function () {
+  var pinCard = document.getElementById('pinCard');
+  var scanCard = document.getElementById('scanCard');
+  var pinInput = document.getElementById('pinInput');
+
+  function getPin() {
+    try { return localStorage.getItem('flamenco_staff_pin') || ''; } catch (e) { return ''; }
+  }
+  function setPin(v) {
+    try { localStorage.setItem('flamenco_staff_pin', v); } catch (e) { /* noop */ }
+  }
+  function clearPin() {
+    try { localStorage.removeItem('flamenco_staff_pin'); } catch (e) { /* noop */ }
+  }
+
+  function showScanUi() {
+    pinCard.querySelector('#pinLogoutBtn').style.display = 'block';
+    scanCard.style.display = 'block';
+    startScanner();
+  }
+
+  document.getElementById('pinSaveBtn').addEventListener('click', function () {
+    var v = pinInput.value.trim();
+    if (!v) return;
+    setPin(v);
+    showScanUi();
+  });
+
+  document.getElementById('pinLogoutBtn').addEventListener('click', function () {
+    clearPin();
+    location.reload();
+  });
+
+  function callApi(payload) {
+    payload.pin = getPin();
+    return fetch(GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    }).then(function (r) { return r.json(); });
+  }
+
+  function renderResult(data) {
+    var area = document.getElementById('resultArea');
+    if (!data.ok) {
+      area.innerHTML = '<div class="result-card"><p class="msg-error">' + escapeHtml(data.error || 'エラーが発生しました') + '</p></div>';
+      return;
+    }
+    var paidClass = data.paymentStatus === '確認済' ? 'paid' : 'unpaid';
+    var checkinClass = data.checkin === '済' ? 'done' : 'pending';
+    area.innerHTML =
+      '<div class="result-card">' +
+      '<p><b>' + escapeHtml(data.regNumber) + '</b> — ' + escapeHtml(data.name) + ' 様</p>' +
+      '<p>大人 ' + data.adults + '名 / 子供 ' + data.children + '名 / 合計 ' + Number(data.amount).toLocaleString() + '円 / ' + escapeHtml(data.paymentMethod) + '</p>' +
+      '<p>支払状況: <span class="status-pill ' + paidClass + '">' + escapeHtml(data.paymentStatus) + '</span> &nbsp; 入場: <span class="status-pill ' + checkinClass + '">' + escapeHtml(data.checkin) + '</span></p>' +
+      '<button id="markPaidBtn">支払い確認済みにする</button>' +
+      '<button id="checkinBtn" class="secondary">入場受付する</button>' +
+      '</div>';
+
+    document.getElementById('markPaidBtn').addEventListener('click', function () {
+      callApi({ action: 'markPaid', regNumber: data.regNumber }).then(function (res) {
+        if (res.ok) { lookupByRegNumber(data.regNumber); } else { alert(res.error); }
+      });
+    });
+    document.getElementById('checkinBtn').addEventListener('click', function () {
+      callApi({ action: 'checkin', regNumber: data.regNumber }).then(function (res) {
+        if (res.ok) { lookupByRegNumber(data.regNumber); } else { alert(res.error); }
+      });
+    });
+  }
+
+  function lookupByCode(code) {
+    callApi({ action: 'lookup', code: code }).then(renderResult);
+  }
+  function lookupByRegNumber(regNumber) {
+    callApi({ action: 'lookup', regNumber: regNumber }).then(renderResult);
+  }
+
+  document.getElementById('manualSearchBtn').addEventListener('click', function () {
+    var v = document.getElementById('manualRegNumber').value.trim();
+    if (v) lookupByRegNumber(v);
+  });
+
+  document.getElementById('listBtn').addEventListener('click', function () {
+    callApi({ action: 'list' }).then(function (res) {
+      var el = document.getElementById('listArea');
+      if (!res.ok) { el.innerHTML = '<p class="msg-error">' + escapeHtml(res.error || 'エラー') + '</p>'; return; }
+      var rows = res.rows.map(function (r) {
+        return '<tr><td>' + escapeHtml(r.regNumber) + '</td><td>' + escapeHtml(r.name) + '</td>' +
+          '<td>' + r.adults + '/' + r.children + '</td><td>' + Number(r.amount).toLocaleString() + '</td>' +
+          '<td>' + escapeHtml(r.paymentMethod) + '</td><td>' + escapeHtml(r.paymentStatus) + '</td><td>' + escapeHtml(r.checkin) + '</td></tr>';
+      }).join('');
+      el.innerHTML = '<table class="list-table"><tr><th>番号</th><th>氏名</th><th>大人/子供</th><th>金額</th><th>方法</th><th>支払</th><th>入場</th></tr>' + rows + '</table>';
+    });
+  });
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  var scannerStarted = false;
+  function startScanner() {
+    if (scannerStarted) return;
+    scannerStarted = true;
+    var html5QrCode = new Html5Qrcode('reader');
+    var lastText = '';
+    var lastTime = 0;
+    html5QrCode.start(
+      { facingMode: 'environment' },
+      { fps: 10, qrbox: 250 },
+      function (decodedText) {
+        var now = Date.now();
+        if (decodedText === lastText && (now - lastTime) < 4000) return; // 連続読み取り防止
+        lastText = decodedText;
+        lastTime = now;
+        document.getElementById('scanMsg').innerHTML = '<span class="msg-ok">読み取りました: ' + escapeHtml(decodedText) + '</span>';
+        lookupByCode(decodedText);
+      },
+      function () { /* 読み取り失敗は無視(継続スキャン) */ }
+    ).catch(function (err) {
+      document.getElementById('scanMsg').innerHTML = '<span class="msg-error">カメラを起動できませんでした: ' + escapeHtml(String(err)) + '</span>';
+    });
+  }
+
+  if (getPin()) {
+    pinInput.value = getPin();
+    showScanUi();
+  }
+})();
+</script>
+
+</body>
+</html>
