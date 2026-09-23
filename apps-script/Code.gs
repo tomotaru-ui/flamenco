@@ -174,7 +174,7 @@ function handleAdminStats_(payload) {
   requireAdminPin_(payload);
   var sheet = getSheet_();
   var stats = getStats_();
-  try { updateDashboard_(); } catch (e) { /* 集計シートの更新に失敗しても基本の集計は返す */ }
+  try { ensureDashboard_(); } catch (e) { /* 集計シートの作成に失敗しても基本の集計は返す */ }
   return {
     ok: true,
     registrationCount: Math.max(sheet.getLastRow() - 1, 0),
@@ -185,96 +185,75 @@ function handleAdminStats_(payload) {
 }
 
 /**
- * 「登録」シートの内容から集計値を計算し、「集計」シートに表とグラフを作り直す。
- * admin.html で状況確認・リセットを行うたびに呼び出される。
+ * 「集計」シートを、登録シートを直接参照する数式ベースで作成する(存在しない場合のみ)。
+ * 数式で組んであるため、登録シートの値が変わるたび(直接編集・Web申込みいずれも)に
+ * スプレッドシート自身が自動再計算し、グラフも連動して更新される。Apps Script側の
+ * 再実行は不要。
  */
-function updateDashboard_() {
-  var sheet = getSheet_();
-  var data = sheet.getDataRange().getValues();
-
-  var totalRegs = 0, totalAdults = 0, totalChildren = 0;
-  var totalAmount = 0, paidAmount = 0, unpaidAmount = 0;
-  var checkedIn = 0, notCheckedIn = 0;
-
-  for (var i = 1; i < data.length; i++) {
-    var row = data[i];
-    if (!row[0]) continue;
-    totalRegs++;
-    var adults = Number(row[6] || 0);
-    var children = Number(row[7] || 0);
-    var amount = Number(row[8] || 0);
-    totalAdults += adults;
-    totalChildren += children;
-    totalAmount += amount;
-    if (row[10] === '確認済') {
-      paidAmount += amount;
-    } else {
-      unpaidAmount += amount;
-    }
-    if (row[11] === '済') {
-      checkedIn += (adults + children);
-    } else {
-      notCheckedIn += (adults + children);
-    }
-  }
-
+function ensureDashboard_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var dash = ss.getSheetByName(DASHBOARD_SHEET_NAME);
-  if (!dash) {
-    dash = ss.insertSheet(DASHBOARD_SHEET_NAME);
-  }
+  if (ss.getSheetByName(DASHBOARD_SHEET_NAME)) return; // 既にあれば数式を壊さないよう何もしない
 
-  var charts = dash.getCharts();
-  for (var c = 0; c < charts.length; c++) {
-    dash.removeChart(charts[c]);
-  }
-  dash.clear();
+  var dash = ss.insertSheet(DASHBOARD_SHEET_NAME);
+  var R = "'" + SHEET_NAME + "'!"; // 例: '登録'!
+  var MAXROW = 10000;
 
   dash.getRange('A1').setValue('集計ダッシュボード').setFontSize(16).setFontWeight('bold');
-  dash.getRange('A2').setValue('更新日時:' + Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss'));
+  dash.getRange('A2').setValue('登録シートを直接参照しています。登録シートの値を変更すると自動的に再計算されます。');
 
-  var summary = [
-    ['総申込件数', totalRegs],
-    ['総参加人数', totalAdults + totalChildren],
-    ['　大人合計', totalAdults],
-    ['　子供合計', totalChildren],
-    ['定員', CAPACITY],
-    ['残席', Math.max(CAPACITY - (totalAdults + totalChildren), 0)],
-    ['総売上見込み(円)', totalAmount],
-    ['支払い済み金額(円)', paidAmount],
-    ['未払い金額(円)', unpaidAmount],
-    ['入場済み人数', checkedIn],
-    ['未入場人数', notCheckedIn]
-  ];
-  dash.getRange(4, 1, summary.length, 2).setValues(summary);
-  dash.getRange(4, 1, summary.length, 1).setFontWeight('bold');
+  // ---- サマリー(B列は全て数式) ----
+  dash.getRange('A4').setValue('大人合計');
+  dash.getRange('B4').setFormula('=SUM(' + R + 'G2:G' + MAXROW + ')');
+  dash.getRange('A5').setValue('子供合計');
+  dash.getRange('B5').setFormula('=SUM(' + R + 'H2:H' + MAXROW + ')');
+  dash.getRange('A6').setValue('総参加人数');
+  dash.getRange('B6').setFormula('=B4+B5');
+  dash.getRange('A7').setValue('総申込件数');
+  dash.getRange('B7').setFormula('=COUNTA(' + R + 'A2:A' + MAXROW + ')');
+  dash.getRange('A8').setValue('定員');
+  dash.getRange('B8').setValue(CAPACITY);
+  dash.getRange('A9').setValue('残席');
+  dash.getRange('B9').setFormula('=MAX(B8-B6,0)');
+  dash.getRange('A10').setValue('総売上見込み(円)');
+  dash.getRange('B10').setFormula('=SUM(' + R + 'I2:I' + MAXROW + ')');
+  dash.getRange('A11').setValue('支払い済み金額(円)');
+  dash.getRange('B11').setFormula('=SUMIF(' + R + 'K2:K' + MAXROW + ',"確認済",' + R + 'I2:I' + MAXROW + ')');
+  dash.getRange('A12').setValue('未払い金額(円)');
+  dash.getRange('B12').setFormula('=B10-B11');
+  dash.getRange('A13').setValue('入場済み人数');
+  dash.getRange('B13').setFormula(
+    '=SUMIF(' + R + 'L2:L' + MAXROW + ',"済",' + R + 'G2:G' + MAXROW + ')' +
+    '+SUMIF(' + R + 'L2:L' + MAXROW + ',"済",' + R + 'H2:H' + MAXROW + ')'
+  );
+  dash.getRange('A14').setValue('未入場人数');
+  dash.getRange('B14').setFormula('=B6-B13');
 
-  var paymentRow = 4 + summary.length + 2;
-  dash.getRange(paymentRow, 1, 3, 2).setValues([
-    ['支払い状況', '金額'],
-    ['支払い済み', paidAmount],
-    ['未払い', unpaidAmount]
-  ]);
+  dash.getRange('A4:A14').setFontWeight('bold');
 
-  var ageRow = paymentRow + 4;
-  dash.getRange(ageRow, 1, 3, 2).setValues([
-    ['区分', '人数'],
-    ['大人', totalAdults],
-    ['子供', totalChildren]
-  ]);
+  // ---- グラフ用データ(全てB列のセルを参照する数式) ----
+  dash.getRange('A16:B16').setValues([['支払い状況', '金額']]);
+  dash.getRange('A17').setValue('支払い済み');
+  dash.getRange('B17').setFormula('=B11');
+  dash.getRange('A18').setValue('未払い');
+  dash.getRange('B18').setFormula('=B12');
 
-  var checkinRow = ageRow + 4;
-  dash.getRange(checkinRow, 1, 3, 2).setValues([
-    ['入場状況', '人数'],
-    ['入場済み', checkedIn],
-    ['未入場', notCheckedIn]
-  ]);
+  dash.getRange('A20:B20').setValues([['区分', '人数']]);
+  dash.getRange('A21').setValue('大人');
+  dash.getRange('B21').setFormula('=B4');
+  dash.getRange('A22').setValue('子供');
+  dash.getRange('B22').setFormula('=B5');
+
+  dash.getRange('A24:B24').setValues([['入場状況', '人数']]);
+  dash.getRange('A25').setValue('入場済み');
+  dash.getRange('B25').setFormula('=B13');
+  dash.getRange('A26').setValue('未入場');
+  dash.getRange('B26').setFormula('=B14');
 
   dash.autoResizeColumns(1, 2);
 
   var paymentChart = dash.newChart()
     .setChartType(Charts.ChartType.PIE)
-    .addRange(dash.getRange(paymentRow, 1, 3, 2))
+    .addRange(dash.getRange('A16:B18'))
     .setPosition(4, 4, 0, 0)
     .setOption('title', '支払い状況(金額)')
     .setOption('width', 380)
@@ -284,7 +263,7 @@ function updateDashboard_() {
 
   var ageChart = dash.newChart()
     .setChartType(Charts.ChartType.PIE)
-    .addRange(dash.getRange(ageRow, 1, 3, 2))
+    .addRange(dash.getRange('A20:B22'))
     .setPosition(20, 4, 0, 0)
     .setOption('title', '大人・子供 人数比')
     .setOption('width', 380)
@@ -294,7 +273,7 @@ function updateDashboard_() {
 
   var checkinChart = dash.newChart()
     .setChartType(Charts.ChartType.PIE)
-    .addRange(dash.getRange(checkinRow, 1, 3, 2))
+    .addRange(dash.getRange('A24:B26'))
     .setPosition(36, 4, 0, 0)
     .setOption('title', '入場状況(人数)')
     .setOption('width', 380)
@@ -327,7 +306,7 @@ function handleReset_(payload) {
       sheet.deleteRows(2, lastRow - 1);
     }
 
-    try { updateDashboard_(); } catch (e) { /* 集計シートの更新に失敗してもリセット自体は成功として扱う */ }
+    try { ensureDashboard_(); } catch (e) { /* 集計シートの作成に失敗してもリセット自体は成功として扱う(数式は登録シートの変化に自動追従する) */ }
     return { ok: true, archivedCount: archivedCount, archiveName: archiveName };
   } finally {
     lock.releaseLock();
