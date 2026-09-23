@@ -6,6 +6,7 @@
  */
 
 var SHEET_NAME = '登録';
+var DASHBOARD_SHEET_NAME = '集計';
 var CAPACITY = 220;
 var ADULT_PRICE = 2500;
 var CHILD_PRICE = 1000;
@@ -173,6 +174,7 @@ function handleAdminStats_(payload) {
   requireAdminPin_(payload);
   var sheet = getSheet_();
   var stats = getStats_();
+  try { updateDashboard_(); } catch (e) { /* 集計シートの更新に失敗しても基本の集計は返す */ }
   return {
     ok: true,
     registrationCount: Math.max(sheet.getLastRow() - 1, 0),
@@ -180,6 +182,125 @@ function handleAdminStats_(payload) {
     capacity: stats.capacity,
     remaining: stats.remaining
   };
+}
+
+/**
+ * 「登録」シートの内容から集計値を計算し、「集計」シートに表とグラフを作り直す。
+ * admin.html で状況確認・リセットを行うたびに呼び出される。
+ */
+function updateDashboard_() {
+  var sheet = getSheet_();
+  var data = sheet.getDataRange().getValues();
+
+  var totalRegs = 0, totalAdults = 0, totalChildren = 0;
+  var totalAmount = 0, paidAmount = 0, unpaidAmount = 0;
+  var checkedIn = 0, notCheckedIn = 0;
+
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    if (!row[0]) continue;
+    totalRegs++;
+    var adults = Number(row[6] || 0);
+    var children = Number(row[7] || 0);
+    var amount = Number(row[8] || 0);
+    totalAdults += adults;
+    totalChildren += children;
+    totalAmount += amount;
+    if (row[10] === '確認済') {
+      paidAmount += amount;
+    } else {
+      unpaidAmount += amount;
+    }
+    if (row[11] === '済') {
+      checkedIn += (adults + children);
+    } else {
+      notCheckedIn += (adults + children);
+    }
+  }
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var dash = ss.getSheetByName(DASHBOARD_SHEET_NAME);
+  if (!dash) {
+    dash = ss.insertSheet(DASHBOARD_SHEET_NAME);
+  }
+
+  var charts = dash.getCharts();
+  for (var c = 0; c < charts.length; c++) {
+    dash.removeChart(charts[c]);
+  }
+  dash.clear();
+
+  dash.getRange('A1').setValue('集計ダッシュボード').setFontSize(16).setFontWeight('bold');
+  dash.getRange('A2').setValue('更新日時:' + Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss'));
+
+  var summary = [
+    ['総申込件数', totalRegs],
+    ['総参加人数', totalAdults + totalChildren],
+    ['　大人合計', totalAdults],
+    ['　子供合計', totalChildren],
+    ['定員', CAPACITY],
+    ['残席', Math.max(CAPACITY - (totalAdults + totalChildren), 0)],
+    ['総売上見込み(円)', totalAmount],
+    ['支払い済み金額(円)', paidAmount],
+    ['未払い金額(円)', unpaidAmount],
+    ['入場済み人数', checkedIn],
+    ['未入場人数', notCheckedIn]
+  ];
+  dash.getRange(4, 1, summary.length, 2).setValues(summary);
+  dash.getRange(4, 1, summary.length, 1).setFontWeight('bold');
+
+  var paymentRow = 4 + summary.length + 2;
+  dash.getRange(paymentRow, 1, 3, 2).setValues([
+    ['支払い状況', '金額'],
+    ['支払い済み', paidAmount],
+    ['未払い', unpaidAmount]
+  ]);
+
+  var ageRow = paymentRow + 4;
+  dash.getRange(ageRow, 1, 3, 2).setValues([
+    ['区分', '人数'],
+    ['大人', totalAdults],
+    ['子供', totalChildren]
+  ]);
+
+  var checkinRow = ageRow + 4;
+  dash.getRange(checkinRow, 1, 3, 2).setValues([
+    ['入場状況', '人数'],
+    ['入場済み', checkedIn],
+    ['未入場', notCheckedIn]
+  ]);
+
+  dash.autoResizeColumns(1, 2);
+
+  var paymentChart = dash.newChart()
+    .setChartType(Charts.ChartType.PIE)
+    .addRange(dash.getRange(paymentRow, 1, 3, 2))
+    .setPosition(4, 4, 0, 0)
+    .setOption('title', '支払い状況(金額)')
+    .setOption('width', 380)
+    .setOption('height', 260)
+    .build();
+  dash.insertChart(paymentChart);
+
+  var ageChart = dash.newChart()
+    .setChartType(Charts.ChartType.PIE)
+    .addRange(dash.getRange(ageRow, 1, 3, 2))
+    .setPosition(20, 4, 0, 0)
+    .setOption('title', '大人・子供 人数比')
+    .setOption('width', 380)
+    .setOption('height', 260)
+    .build();
+  dash.insertChart(ageChart);
+
+  var checkinChart = dash.newChart()
+    .setChartType(Charts.ChartType.PIE)
+    .addRange(dash.getRange(checkinRow, 1, 3, 2))
+    .setPosition(36, 4, 0, 0)
+    .setOption('title', '入場状況(人数)')
+    .setOption('width', 380)
+    .setOption('height', 260)
+    .build();
+  dash.insertChart(checkinChart);
 }
 
 /**
@@ -206,6 +327,7 @@ function handleReset_(payload) {
       sheet.deleteRows(2, lastRow - 1);
     }
 
+    try { updateDashboard_(); } catch (e) { /* 集計シートの更新に失敗してもリセット自体は成功として扱う */ }
     return { ok: true, archivedCount: archivedCount, archiveName: archiveName };
   } finally {
     lock.releaseLock();
