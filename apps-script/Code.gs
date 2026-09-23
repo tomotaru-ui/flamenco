@@ -46,6 +46,7 @@ function doPost(e) {
     if (action === 'list') return jsonOut_(handleList_(payload));
     if (action === 'adminStats') return jsonOut_(handleAdminStats_(payload));
     if (action === 'reset') return jsonOut_(handleReset_(payload));
+    if (action === 'sendQr') return jsonOut_(handleSendQr_(payload));
     return jsonOut_({ ok: false, error: '不明なアクションです' });
   } catch (err) {
     return jsonOut_({ ok: false, error: String(err) });
@@ -209,6 +210,44 @@ function handleReset_(payload) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/**
+ * 紙チケット・代理登録など、スプレッドシートに直接記入した行に対して、
+ * QRコードを生成しなおして確認メールを送信する。
+ */
+function handleSendQr_(payload) {
+  requireAdminPin_(payload);
+  var regNumber = String(payload.regNumber || '').trim();
+  if (!regNumber) return { ok: false, error: '登録番号を指定してください' };
+
+  var sheet = getSheet_();
+  var row = findRowByRegNumber_(sheet, regNumber);
+  if (row < 0) return { ok: false, error: '登録が見つかりません: ' + regNumber };
+
+  var v = sheet.getRange(row, 1, 1, HEADERS.length).getValues()[0];
+  var name = v[2];
+  var email = String(v[4] || '').trim();
+  var adults = Number(v[6] || 0);
+  var children = Number(v[7] || 0);
+  var amount = Number(v[8] || 0);
+  var paymentMethod = v[9] === '当日現金' ? 'cash' : 'transfer';
+
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { ok: false, error: 'この登録にはメールアドレスが正しく設定されていません。スプレッドシートのメールアドレス列を確認してください。' };
+  }
+  if (!name) {
+    return { ok: false, error: 'この登録には代表者氏名が設定されていません。スプレッドシートを確認してください。' };
+  }
+
+  var token = buildQrToken_(regNumber);
+  var qrBlob = fetchQrImage_(token);
+  sendConfirmationEmail_({
+    regNumber: regNumber, name: name, email: email, adults: adults, children: children,
+    amount: amount, paymentMethod: paymentMethod, qrBlob: qrBlob
+  });
+
+  return { ok: true, email: email };
 }
 
 function resolveRegNumber_(payload) {

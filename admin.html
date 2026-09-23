@@ -32,6 +32,18 @@
     <button class="secondary" id="refreshBtn">最新の状態に更新</button>
   </div>
 
+  <div class="card" id="sendQrCard" style="display:none">
+    <h2>QRコードの送信(紙チケット・代理登録用)</h2>
+    <p style="font-size:13px;color:#7a6b6b">
+      「登録」シートに直接記入した行(紙チケット販売分・電話などでの代理登録分)に対して、
+      QRコード付きの確認メールをあとから送信できます。登録番号・氏名・メールアドレス・人数を
+      先にスプレッドシートへ記入してから使用してください。
+    </p>
+    <label>登録番号</label>
+    <input type="text" id="sendQrRegNumber" placeholder="例: P-0001(スプレッドシートに記入した登録番号)" />
+    <button id="sendQrBtn">この登録番号にQRコードを送信</button>
+  </div>
+
   <div class="card" id="resetCard" style="display:none">
     <h2>次イベント用にリセット</h2>
     <p style="font-size:13px;color:#7a6b6b">
@@ -61,8 +73,16 @@
 (function () {
   var pinCard = document.getElementById('pinCard');
   var statsCard = document.getElementById('statsCard');
+  var sendQrCard = document.getElementById('sendQrCard');
   var resetCard = document.getElementById('resetCard');
   var pinInput = document.getElementById('pinInput');
+
+  function showAdminCards() {
+    statsCard.style.display = 'block';
+    sendQrCard.style.display = 'block';
+    resetCard.style.display = 'block';
+    document.getElementById('pinLogoutBtn').style.display = 'block';
+  }
 
   function getPin() {
     try { return localStorage.getItem('flamenco_admin_pin') || ''; } catch (e) { return ''; }
@@ -109,9 +129,7 @@
     var v = pinInput.value.trim();
     if (!v) return;
     setPin(v);
-    statsCard.style.display = 'block';
-    resetCard.style.display = 'block';
-    document.getElementById('pinLogoutBtn').style.display = 'block';
+    showAdminCards();
     loadStats();
   });
 
@@ -121,6 +139,27 @@
   });
 
   document.getElementById('refreshBtn').addEventListener('click', loadStats);
+
+  document.getElementById('sendQrBtn').addEventListener('click', function () {
+    var regNumber = document.getElementById('sendQrRegNumber').value.trim();
+    if (!regNumber) { alert('登録番号を入力してください。'); return; }
+
+    var btn = document.getElementById('sendQrBtn');
+    btn.disabled = true;
+    btn.textContent = '送信中...';
+
+    callApi({ action: 'sendQr', regNumber: regNumber }).then(function (res) {
+      btn.disabled = false;
+      btn.textContent = 'この登録番号にQRコードを送信';
+      var area = document.getElementById('resultArea');
+      if (!res.ok) {
+        area.innerHTML = '<div class="card"><p class="msg-error">' + escapeHtml(res.error) + '</p></div>';
+        return;
+      }
+      area.innerHTML = '<div class="card"><p class="msg-ok">' +
+        escapeHtml(regNumber) + ' 宛のQRコード付き確認メールを ' + escapeHtml(res.email) + ' に送信しました。</p></div>';
+    });
+  });
 
   document.getElementById('resetBtn').addEventListener('click', function () {
     callApi({ action: 'adminStats' }).then(function (stats) {
@@ -158,9 +197,7 @@
 
   if (getPin()) {
     pinInput.value = getPin();
-    statsCard.style.display = 'block';
-    resetCard.style.display = 'block';
-    document.getElementById('pinLogoutBtn').style.display = 'block';
+    showAdminCards();
     loadStats();
   }
 })();
