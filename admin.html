@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>管理ページ | フラメンコ公演 参加登録システム</title>
+<link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+
+<div class="hero" style="padding:28px 20px;">
+  <div class="eyebrow">ADMIN ONLY</div>
+  <h1 style="font-size:22px">管理ページ</h1>
+</div>
+
+<div class="container">
+
+  <div class="card" id="pinCard">
+    <h2>管理者PIN</h2>
+    <label>PINコード</label>
+    <input type="text" id="pinInput" inputmode="numeric" placeholder="管理者用PIN" />
+    <button id="pinSaveBtn">このブラウザに保存して開始</button>
+    <p style="font-size:12px;color:#7a6b6b">
+      受付スタッフ用PIN(STAFF_PIN)とは別の管理者用PIN(ADMIN_PIN)です。リセット権限を持つ人だけに共有してください。
+    </p>
+    <button class="secondary" id="pinLogoutBtn" style="display:none">PINを削除してログアウト</button>
+  </div>
+
+  <div class="card" id="statsCard" style="display:none">
+    <h2>現在の登録状況</h2>
+    <div id="statsArea">読み込み中...</div>
+    <button class="secondary" id="refreshBtn">最新の状態に更新</button>
+  </div>
+
+  <div class="card" id="resetCard" style="display:none">
+    <h2>次イベント用にリセット</h2>
+    <p style="font-size:13px;color:#7a6b6b">
+      このシステムを別のイベントで再利用する場合に使います。実行すると、
+    </p>
+    <ul style="font-size:13px;color:#7a6b6b">
+      <li>現在の登録データはすべて「archive_...」という名前の別シートに自動コピーされます(削除されません)</li>
+      <li>「登録」シートはヘッダーのみの空の状態に戻ります</li>
+      <li>次回の登録番号は <b>TF-0001</b> から再開されます</li>
+    </ul>
+    <p style="font-size:13px;color:#b00020;font-weight:600">
+      この操作は取り消せません。次のイベントの準備が整うまでは実行しないでください。
+    </p>
+
+    <label>アーカイブ名に付けるラベル(任意・例:flamenco2027)</label>
+    <input type="text" id="archiveLabel" placeholder="例: flamenco2027" />
+
+    <button id="resetBtn" style="background:#b00020">登録データをリセットする</button>
+  </div>
+
+  <div id="resultArea"></div>
+
+</div>
+
+<script src="assets/config.js"></script>
+<script>
+(function () {
+  var pinCard = document.getElementById('pinCard');
+  var statsCard = document.getElementById('statsCard');
+  var resetCard = document.getElementById('resetCard');
+  var pinInput = document.getElementById('pinInput');
+
+  function getPin() {
+    try { return localStorage.getItem('flamenco_admin_pin') || ''; } catch (e) { return ''; }
+  }
+  function setPin(v) {
+    try { localStorage.setItem('flamenco_admin_pin', v); } catch (e) { /* noop */ }
+  }
+  function clearPin() {
+    try { localStorage.removeItem('flamenco_admin_pin'); } catch (e) { /* noop */ }
+  }
+
+  function callApi(payload) {
+    payload.pin = getPin();
+    return fetch(GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    }).then(function (r) { return r.json(); });
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function loadStats() {
+    document.getElementById('statsArea').textContent = '読み込み中...';
+    callApi({ action: 'adminStats' }).then(function (res) {
+      if (!res.ok) {
+        document.getElementById('statsArea').innerHTML = '<p class="msg-error">' + escapeHtml(res.error) + '</p>';
+        return;
+      }
+      document.getElementById('statsArea').innerHTML =
+        '<table class="info-table">' +
+        '<tr><th>登録件数</th><td>' + res.registrationCount + ' 件</td></tr>' +
+        '<tr><th>登録済み人数</th><td>' + res.registeredSeats + ' 名 / 定員 ' + res.capacity + ' 名</td></tr>' +
+        '<tr><th>残席</th><td>' + res.remaining + ' 席</td></tr>' +
+        '</table>';
+    });
+  }
+
+  document.getElementById('pinSaveBtn').addEventListener('click', function () {
+    var v = pinInput.value.trim();
+    if (!v) return;
+    setPin(v);
+    statsCard.style.display = 'block';
+    resetCard.style.display = 'block';
+    document.getElementById('pinLogoutBtn').style.display = 'block';
+    loadStats();
+  });
+
+  document.getElementById('pinLogoutBtn').addEventListener('click', function () {
+    clearPin();
+    location.reload();
+  });
+
+  document.getElementById('refreshBtn').addEventListener('click', loadStats);
+
+  document.getElementById('resetBtn').addEventListener('click', function () {
+    callApi({ action: 'adminStats' }).then(function (stats) {
+      if (!stats.ok) { alert(stats.error); return; }
+
+      var step1 = confirm(
+        '現在 ' + stats.registrationCount + ' 件の登録データがあります。\n' +
+        'これをアーカイブしたうえで、登録データを空にして次回イベント用(TF-0001から)にリセットします。\n\n' +
+        '本当によろしいですか?'
+      );
+      if (!step1) return;
+
+      var typed = prompt('最終確認です。実行するには半角大文字で「RESET」と入力してください。');
+      if (typed !== 'RESET') {
+        alert('入力が一致しなかったため、リセットは中止しました。');
+        return;
+      }
+
+      var label = document.getElementById('archiveLabel').value.trim();
+      callApi({ action: 'reset', eventLabel: label }).then(function (res) {
+        var area = document.getElementById('resultArea');
+        if (!res.ok) {
+          area.innerHTML = '<div class="card"><p class="msg-error">' + escapeHtml(res.error) + '</p></div>';
+          return;
+        }
+        area.innerHTML = '<div class="card"><p class="msg-ok">リセットが完了しました。' +
+          (res.archivedCount > 0
+            ? '(' + res.archivedCount + ' 件を「' + escapeHtml(res.archiveName) + '」シートにアーカイブしました)'
+            : '(アーカイブ対象のデータはありませんでした)') +
+          '<br>次回の登録は TF-0001 から開始されます。</p></div>';
+        loadStats();
+      });
+    });
+  });
+
+  if (getPin()) {
+    pinInput.value = getPin();
+    statsCard.style.display = 'block';
+    resetCard.style.display = 'block';
+    document.getElementById('pinLogoutBtn').style.display = 'block';
+    loadStats();
+  }
+})();
+</script>
+
+</body>
+</html>

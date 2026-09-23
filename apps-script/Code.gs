@@ -44,6 +44,8 @@ function doPost(e) {
     if (action === 'markPaid') return jsonOut_(handleMarkPaid_(payload));
     if (action === 'checkin') return jsonOut_(handleCheckin_(payload));
     if (action === 'list') return jsonOut_(handleList_(payload));
+    if (action === 'adminStats') return jsonOut_(handleAdminStats_(payload));
+    if (action === 'reset') return jsonOut_(handleReset_(payload));
     return jsonOut_({ ok: false, error: '不明なアクションです' });
   } catch (err) {
     return jsonOut_({ ok: false, error: String(err) });
@@ -165,6 +167,56 @@ function requirePin_(payload) {
   var pin = getProp_('STAFF_PIN', '');
   if (!pin || String(payload.pin) !== String(pin)) {
     throw new Error('PINが正しくありません');
+  }
+}
+
+function requireAdminPin_(payload) {
+  var pin = getProp_('ADMIN_PIN', '');
+  if (!pin || String(payload.pin) !== String(pin)) {
+    throw new Error('管理者PINが正しくありません');
+  }
+}
+
+function handleAdminStats_(payload) {
+  requireAdminPin_(payload);
+  var sheet = getSheet_();
+  var stats = getStats_();
+  return {
+    ok: true,
+    registrationCount: Math.max(sheet.getLastRow() - 1, 0),
+    registeredSeats: stats.registered,
+    capacity: stats.capacity,
+    remaining: stats.remaining
+  };
+}
+
+/**
+ * 現在の登録データを別シートにアーカイブしてから、
+ * 「登録」シートをヘッダーのみの状態に戻す(次回登録は TF-0001 から再開する)。
+ */
+function handleReset_(payload) {
+  requireAdminPin_(payload);
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var sheet = getSheet_();
+    var lastRow = sheet.getLastRow();
+    var archivedCount = Math.max(lastRow - 1, 0);
+    var archiveName = null;
+
+    if (archivedCount > 0) {
+      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      var label = String(payload.eventLabel || '').trim().replace(/[^\w぀-ヿ一-鿿-]/g, '');
+      var stamp = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyyMMdd_HHmmss');
+      archiveName = ('archive_' + (label ? label + '_' : '') + stamp).substring(0, 90);
+      var archiveSheet = sheet.copyTo(ss);
+      archiveSheet.setName(archiveName);
+      sheet.deleteRows(2, lastRow - 1);
+    }
+
+    return { ok: true, archivedCount: archivedCount, archiveName: archiveName };
+  } finally {
+    lock.releaseLock();
   }
 }
 

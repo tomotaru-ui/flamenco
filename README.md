@@ -4,6 +4,7 @@ Carlos Gomez Flamenco School 主催のフラメンコ公演(2027年11月21日・
 
 - 参加登録フォーム(GitHub Pages): `index.html`
 - 受付QRチェックイン(GitHub Pages / スタッフ用): `checkin.html`
+- 管理ページ(GitHub Pages / 管理者用・次イベント用リセット): `admin.html`
 - バックエンド(Google Apps Script + Google スプレッドシート): `apps-script/`
 
 ## 全体の仕組み
@@ -31,6 +32,7 @@ Carlos Gomez Flamenco School 主催のフラメンコ公演(2027年11月21日・
    | プロパティ名 | 説明 | 例 |
    |---|---|---|
    | `STAFF_PIN` | 受付スタッフ用PIN(必須。設定しないとチェックインAPIが使えません) | `2027` |
+   | `ADMIN_PIN` | 管理者用PIN(必須。`admin.html` のリセット機能に使用。`STAFF_PIN` とは別の値にし、リセット権限を持つ人だけに共有してください) | `9999` |
    | `QR_SECRET` | QRコード署名用の秘密文字列(必須・他人に推測されない値にしてください) | `flamenco-2027-xxxxx` |
    | `BANK_OKINAWA` | 沖縄銀行の振込先情報(確定次第、正しい内容に更新してください) | `沖縄銀行 那覇支店 普通 1234567 口座名義:カルロスゴメスフラメンコスクール` |
    | `BANK_RYUKYU` | 琉球銀行の振込先情報(確定次第、正しい内容に更新してください) | `琉球銀行 ◯◯支店 普通 7654321 口座名義:カルロスゴメスフラメンコスクール` |
@@ -66,9 +68,9 @@ const GAS_URL = "https://script.google.com/macros/s/ここに実際のID/exec";
 1. `Settings` → `Pages`
 2. `Source` を `Deploy from a branch` にし、Branch を `main` / `root` に設定して保存
 
-数分後、`https://tomotaru-ui.github.io/flamenco/` で `index.html`(参加登録ページ)が公開されます。スタッフ用チェックインページは `https://tomotaru-ui.github.io/flamenco/checkin.html` です。
+数分後、`https://tomotaru-ui.github.io/flamenco/` で `index.html`(参加登録ページ)が公開されます。スタッフ用チェックインページは `https://tomotaru-ui.github.io/flamenco/checkin.html`、管理ページは `https://tomotaru-ui.github.io/flamenco/admin.html` です。
 
-> チェックインページはURLを知っていれば誰でも開けますが、スタッフPIN(`STAFF_PIN`)を知らないとデータの閲覧・更新はできません。PINは受付スタッフ内のみで共有してください。
+> チェックイン・管理ページはURLを知っていれば誰でも開けますが、それぞれ `STAFF_PIN` / `ADMIN_PIN` を知らないとデータの閲覧・更新はできません。PINは該当する担当者内のみで共有してください。
 
 ## 運用フロー
 
@@ -86,6 +88,20 @@ const GAS_URL = "https://script.google.com/macros/s/ここに実際のID/exec";
 3. 氏名・人数・支払状況が表示されるので確認
 4. 現金払いでまだ未確認の場合は、集金後に「支払い確認済みにする」を押す
 5. 「入場受付する」を押して入場記録を更新
+
+### 次のイベントに向けたリセット(管理者側)
+
+このシステムを別のイベントでも使い回す場合、`admin.html` から登録データをリセットできます。
+
+1. `admin.html` を開き、`ADMIN_PIN` を入力
+2. 現在の登録件数・残席が表示される
+3. 「登録データをリセットする」を押すと、確認ダイアログ→「RESET」の入力確認の2段階を経て実行
+4. 実行すると、現在の「登録」シートの中身が `archive_(ラベル)_(日時)` という名前の別シートに自動コピーされ、「登録」シートはヘッダーのみの空の状態に戻る
+5. 次回の登録は自動的に `TF-0001` から再開される
+
+過去のイベントデータはスプレッドシート内に `archive_...` シートとして残り続けるため、必要に応じて後から参照できます。
+
+> リセットは元に戻せません。次イベントの準備が整うまでは実行しないでください。また、別のイベントで日付・会場・料金・振込先などが変わる場合は、スクリプトプロパティ(`EVENT_NAME` / `EVENT_DATE` / `EVENT_VENUE` / `APPLY_DEADLINE` / `BANK_OKINAWA` / `BANK_RYUKYU` など)と `index.html` の表示内容を合わせて更新してください。
 
 ## スプレッドシートの列構成(自動生成される「登録」シート)
 
@@ -106,6 +122,10 @@ const GAS_URL = "https://script.google.com/macros/s/ここに実際のID/exec";
 - QRコードには登録番号 + 署名(`QR_SECRET` によるHMAC)が入っており、単純な連番の推測だけでは他人のQRコードを偽造できません。
 - チェックイン・支払確認・一覧表示のAPIは全て `STAFF_PIN` による認証が必須です。PINは推測されにくい値にし、定期的に変更することをおすすめします。
 - 振込口座情報は `BANK_OKINAWA` / `BANK_RYUKYU` のスクリプトプロパティで管理しているため、確定後はコードを変更せずに値を更新するだけで反映されます(再デプロイ不要、次回送信メールから即反映)。
+
+## Code.gs を更新したとき
+
+`apps-script/Code.gs` の内容を変更した場合は、Apps Scriptエディタ側の `Code.gs` にも同じ内容を貼り直し、「デプロイ」→「デプロイを管理」→ 既存デプロイの鉛筆アイコン→ バージョン「新バージョン」で再デプロイしてください(URLは変わりません)。貼り替えを忘れると、GitHub Pages側だけ新機能(例:管理ページのリセット)が呼び出せてもバックエンドが対応しておらずエラーになります。
 
 ## 未確定事項(公開前に必ず対応)
 
