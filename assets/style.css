@@ -197,16 +197,6 @@ button.secondary {
 }
 button.secondary:hover { background: #e3d3c4; }
 
-.response-frame {
-  width: 100%;
-  min-height: 280px;
-  border: 1px solid var(--color-line);
-  border-radius: 12px;
-  margin-top: 16px;
-  display: none;
-  background: #fff;
-}
-
 footer {
   text-align: center;
   font-size: 12px;

@@ -62,10 +62,6 @@ function jsonOut_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function htmlOut_(html) {
-  return HtmlService.createHtmlOutput(html);
-}
-
 function getStats_() {
   var sheet = getSheet_();
   var data = sheet.getDataRange().getValues();
@@ -86,10 +82,10 @@ function handleRegister_(payload) {
   var paymentMethod = payload.paymentMethod === 'cash' ? 'cash' : 'transfer';
 
   if (!name || !email || (adults + children) < 1) {
-    return htmlOut_(renderMessagePage_('入力エラー', 'お名前・メールアドレス・人数をご確認のうえ、もう一度お送りください。', true));
+    return jsonOut_({ ok: false, error: 'お名前・メールアドレス・人数をご確認のうえ、もう一度お送りください。' });
   }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return htmlOut_(renderMessagePage_('入力エラー', 'メールアドレスの形式が正しくありません。', true));
+    return jsonOut_({ ok: false, error: 'メールアドレスの形式が正しくありません。' });
   }
 
   var lock = LockService.getScriptLock();
@@ -98,12 +94,11 @@ function handleRegister_(payload) {
     var sheet = getSheet_();
     var stats = getStats_();
     if (stats.remaining < (adults + children)) {
-      return htmlOut_(renderMessagePage_(
-        '満席のお知らせ',
-        '大変申し訳ございません。現在お申込みいただける残席は ' + stats.remaining + ' 席のため、' +
-        (adults + children) + ' 名でのお申込みを承ることができませんでした。お手数ですが主催者までお問い合わせください。',
-        true
-      ));
+      return jsonOut_({
+        ok: false,
+        error: '大変申し訳ございません。現在お申込みいただける残席は ' + stats.remaining + ' 席のため、' +
+          (adults + children) + ' 名でのお申込みを承ることができませんでした。お手数ですが主催者までお問い合わせください。'
+      });
     }
 
     var seq = sheet.getLastRow(); // ヘッダー行を除いた既存件数 + 1 と一致する
@@ -122,11 +117,7 @@ function handleRegister_(payload) {
       amount: amount, paymentMethod: paymentMethod, qrBlob: qrBlob
     });
 
-    return htmlOut_(renderMessagePage_(
-      'お申込みありがとうございました',
-      '登録番号:' + regNumber + '<br>ご入力いただいたメールアドレス宛にQRコード付きの確認メールをお送りしました。届かない場合は迷惑メールフォルダもご確認ください。',
-      false
-    ));
+    return jsonOut_({ ok: true, regNumber: regNumber });
   } finally {
     lock.releaseLock();
   }
@@ -327,12 +318,4 @@ function sendConfirmationEmail_(info) {
       inlineImages: { qrcode: info.qrBlob },
       name: eventName + ' 事務局'
     });
-}
-
-function renderMessagePage_(title, message, isError) {
-  var color = isError ? '#b00020' : '#2e7d32';
-  return '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">' +
-    '<meta name="viewport" content="width=device-width, initial-scale=1">' +
-    '<style>body{font-family:sans-serif;padding:24px;text-align:center;color:#222} h2{color:' + color + '}</style>' +
-    '</head><body><h2>' + title + '</h2><p>' + message + '</p></body></html>';
 }

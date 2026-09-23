@@ -45,9 +45,7 @@
       お申込み1件につき、代表者様の情報をご入力ください。当日は登録時にお送りする<b>QRコード</b>を受付でご提示いただきます。
     </p>
 
-    <form id="regForm" action="" method="POST" target="response-frame">
-      <input type="hidden" name="action" value="register" />
-
+    <form id="regForm">
       <label>代表者氏名<span class="hint">必須</span></label>
       <input type="text" name="name" required />
 
@@ -84,10 +82,10 @@
         </label>
       </div>
 
-      <button type="submit">この内容で申し込む</button>
+      <button type="submit" id="submitBtn">この内容で申し込む</button>
     </form>
 
-    <iframe name="response-frame" class="response-frame" id="responseFrame"></iframe>
+    <div id="resultArea"></div>
   </div>
 
 </div>
@@ -98,12 +96,58 @@
 
 <script src="assets/config.js"></script>
 <script>
-  document.getElementById('regForm').setAttribute('action', GAS_URL);
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
 
-  document.getElementById('regForm').addEventListener('submit', function () {
-    var frame = document.getElementById('responseFrame');
-    frame.style.display = 'block';
-    frame.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  var form = document.getElementById('regForm');
+  var submitBtn = document.getElementById('submitBtn');
+  var resultArea = document.getElementById('resultArea');
+
+  form.addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    submitBtn.disabled = true;
+    submitBtn.textContent = '送信中...';
+    resultArea.innerHTML = '';
+
+    var payload = {
+      action: 'register',
+      name: form.name.value,
+      kana: form.kana.value,
+      email: form.email.value,
+      tel: form.tel.value,
+      adults: form.adults.value,
+      children: form.children.value,
+      paymentMethod: form.paymentMethod.value
+    };
+
+    fetch(GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (res.ok) {
+          form.style.display = 'none';
+          resultArea.innerHTML =
+            '<div class="card"><h2>お申込みありがとうございました</h2>' +
+            '<p>登録番号:<b>' + escapeHtml(res.regNumber) + '</b></p>' +
+            '<p>ご入力いただいたメールアドレス宛にQRコード付きの確認メールをお送りしました。届かない場合は迷惑メールフォルダもご確認ください。</p></div>';
+        } else {
+          resultArea.innerHTML = '<div class="card"><p class="msg-error">' + escapeHtml(res.error || '送信に失敗しました。もう一度お試しください。') + '</p></div>';
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'この内容で申し込む';
+        }
+        resultArea.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      })
+      .catch(function () {
+        resultArea.innerHTML = '<div class="card"><p class="msg-error">通信エラーが発生しました。お手数ですが、時間をおいて再度お試しください。</p></div>';
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'この内容で申し込む';
+      });
   });
 
   // 残席数の表示(取得できない場合は非表示のまま)
